@@ -20,6 +20,7 @@ class MsSQLPipeline:
         return cls(db_settings)
 
     def open_spider(self, spider):
+        spider.logger.info("MsSQLPipeline: Attempting to connect to SQL Server...")
         try:
             self.conn = pymssql.connect(
                 server=self.db_settings['SERVER'],
@@ -28,25 +29,34 @@ class MsSQLPipeline:
                 database=self.db_settings['DATABASE']
             )
             self.cursor = self.conn.cursor()
-            spider.logger.info("Connected to SQL Server database.")
+            spider.logger.info("MsSQLPipeline: Connected to SQL Server database.")
         except Exception as e:
-            spider.logger.error(f"Error connecting to SQL Server: {e}")
-            self.conn = None
+            spider.logger.error(f"MsSQLPipeline: Error connecting to SQL Server: {e}")
+            self.conn = None # Ensure conn is None if connection fails
 
     def close_spider(self, spider):
         if self.cursor:
             self.cursor.close()
         if self.conn:
             self.conn.close()
-        spider.logger.info("Disconnected from SQL Server database.")
+        spider.logger.info("MsSQLPipeline: Disconnected from SQL Server database.")
 
     def process_item(self, item, spider):
-        if not self.conn:
-            spider.logger.warning("No database connection, skipping item.")
-            return item
-
         adapter = ItemAdapter(item)
+        spider.logger.info(f"MsSQLPipeline: Processing item: {adapter.get('title')}")
+
+        if not self.conn:
+            spider.logger.warning("MsSQLPipeline: No database connection, skipping item.")
+            return item # Return item so it's not dropped by Scrapy by default
+
         try:
+            # Log the data before insertion
+            spider.logger.debug(f"MsSQLPipeline: Inserting data: "
+                                f"Title: {adapter.get('title')}, Source: {adapter.get('source')}, "
+                                f"Category: {adapter.get('category')}, Author: {adapter.get('author')}, "
+                                f"Link: {adapter.get('link')}, Keywords: {adapter.get('keywords')}, "
+                                f"Description: {adapter.get('short_description')}")
+
             self.cursor.execute(
                 """
                 INSERT INTO Articles (Title, Source, Category, Author, Link, Keywords, ShortDescription)
@@ -63,8 +73,8 @@ class MsSQLPipeline:
                 )
             )
             self.conn.commit()
-            spider.logger.info(f"Article '{adapter.get('title')}' saved to DB.")
+            spider.logger.info(f"MsSQLPipeline: Article '{adapter.get('title')}' saved to DB.")
         except Exception as e:
-            self.conn.rollback()
-            spider.logger.error(f"Failed to save item to DB: {adapter.get('title')} - {e}")
+            self.conn.rollback() # Rollback on error
+            spider.logger.error(f"MsSQLPipeline: Failed to save item to DB: '{adapter.get('title')}' - Error: {e}")
         return item
